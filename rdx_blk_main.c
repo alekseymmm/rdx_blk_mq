@@ -25,13 +25,13 @@ struct kmem_cache *rdx_request_cachep = NULL;
 struct kmem_cache *range_cachep = NULL;
 struct workqueue_struct *rdx_blk_wq = NULL;
 
-static char *bdev1_path = "/dev/md/storage_14";
+static char *bdev1_path = "/dev/nvme0n1";
 module_param(bdev1_path, charp, 0000);
-MODULE_PARM_DESC(bdev1_path, "Path to main storage block device");
+MODULE_PARM_DESC(bdev1_path, "Path to first block device");
 
-static char *bdev2_path = "/dev/md/wal_14";
+static char *bdev2_path = "/dev/nvme1n1";
 module_param(bdev2_path, charp, 0000);
-MODULE_PARM_DESC(bdev2_path, "Path to buffer storage block device");
+MODULE_PARM_DESC(bdev2_path, "Path to second block device");
 
 static int home_node = NUMA_NO_NODE;
 module_param(home_node, int, S_IRUGO);
@@ -76,8 +76,6 @@ static void end_cmd(struct rdx_blk_cmd *cmd){
 static inline void rdx_blk_handle_cmd(struct rdx_blk_cmd *cmd){
 	//blk_mq_end_request(cmd->rq, 0);
 	blk_mq_complete_request(cmd->rq, cmd->rq->errors);
-
-	return;
 }
 
 static int rdx_blk_queue_rq(struct blk_mq_hw_ctx *hctx,
@@ -89,7 +87,7 @@ static int rdx_blk_queue_rq(struct blk_mq_hw_ctx *hctx,
 	blk_mq_start_request(bd->rq);
 
 	rdx_blk_handle_cmd(cmd);
-	return BLK_QC_T_NONE;
+	return BLK_MQ_RQ_QUEUE_OK;
 }
 
 static void rdx_blk_init_queue(struct rdx_blk *dev, struct rdx_blk_queue *rdx_blk_q)
@@ -164,13 +162,14 @@ static void rdx_destroy_dev(void)
 		kfree(rdx_blk->name);
 	}
 
+	if(!IS_ERR(rdx_blk->q) && rdx_blk->q != NULL){
+		blk_cleanup_queue(rdx_blk->q);
+		blk_mq_free_tag_set(&rdx_blk->tag_set);
+	}
+
 	if(rdx_blk->queues){
 		cleanup_queues(rdx_blk);
 		pr_debug("For dev %s queues freed\n", RDX_BLKDEV_NAME);
-	}
-
-	if(!IS_ERR(rdx_blk->q) && rdx_blk->q != NULL){
-		blk_mq_free_tag_set(&rdx_blk->tag_set);
 	}
 
 	if(rdx_blk->split_bioset){
